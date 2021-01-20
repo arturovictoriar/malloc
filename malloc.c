@@ -1,8 +1,5 @@
 #include "malloc.h"
 
-static void *begin_h;
-void **head_heap = &begin_h;
-
 /**
  * allocate_memory - get bigger the heap memory
  * Return: the last pointer break
@@ -14,7 +11,7 @@ void *allocate_memory()
 	/* Get bigger the heap memory*/
 	last_bp = sbrk(M_CHUNK);
 	/* if no able to get bigger the heap return NULL*/
-	if (last_bp == ((void *) -1))
+	if (last_bp == VOID_P(-1))
 		return (NULL);
 	/* Clean the new memory of the heap*/
 	memset(last_bp, 0, M_CHUNK);
@@ -33,28 +30,28 @@ void *get_user_ptr(void *heap, size_t mem_asked)
 	size_t remaining_mem = 0, c_mem = 0, pre_chunk_h = 0, cur_chunk_h = 0;
 	void *u_mem = NULL, *neighbor = NULL, *new_neighbor = NULL;
 
-	pre_chunk_h = ((size_t *) heap)[0], cur_chunk_h = ((size_t *) heap)[1];
+	pre_chunk_h = GET_PREV_SIZE(heap), cur_chunk_h = GET_CURR_SIZE(heap);
 	/* If there are a chunck freed before, use it*/
-	if (!(pre_chunk_h & 1))
+	if (!IS_LAST_HEADER(pre_chunk_h))
 	{
-		c_mem = cur_chunk_h - ((cur_chunk_h & 1) ? 1 : 0);
-		neighbor = ((char *) heap) + c_mem;
+		c_mem = cur_chunk_h - IS_PREV_FREE(cur_chunk_h);
+		neighbor = CHAR_P(heap) + c_mem;
 		if (mem_asked + HEADER_C + HEADER_S <= c_mem &&
-				PADDING(c_mem - (mem_asked + HEADER_C)) == 0)
+				PADDING((c_mem - (mem_asked + HEADER_C))) == 0)
 		{
-			new_neighbor = ((char *) heap) + mem_asked;
-			((size_t *) neighbor)[0] -= mem_asked, ((size_t *) new_neighbor)[0] = 0;
-			((size_t *) new_neighbor)[1] = c_mem - mem_asked;
-			((size_t *) heap)[1] = mem_asked + ((cur_chunk_h & 1) ? 1 : 0);
+			new_neighbor = CHAR_P(heap) + mem_asked;
+			PREV_SIZE(neighbor) -= mem_asked, PREV_SIZE(new_neighbor) = 0;
+			CURR_SIZE(new_neighbor) = c_mem - mem_asked;
+			CURR_SIZE(heap) = mem_asked + IS_PREV_FREE(cur_chunk_h);
 		}
 		else
-			((size_t *) neighbor)[0] -= c_mem, ((size_t *) neighbor)[1] -= 1;
-		u_mem = (void *) (((char *) heap) + HEADER_C);
+			PREV_SIZE(neighbor) -= c_mem, CURR_SIZE(neighbor) -= FLAG_FREE;
+		u_mem = VOID_P((CHAR_P(heap) + HEADER_C));
 		return (u_mem);
 	}
 	/* Check if there are enough heap memory for allocate the requested memory*/
-	remaining_mem = cur_chunk_h - ((cur_chunk_h & 1) ? 1 : 0);
-	while (((int) remaining_mem) - ((int) mem_asked) < 0)
+	remaining_mem = cur_chunk_h - IS_PREV_FREE(cur_chunk_h);
+	while (remaining_mem < mem_asked)
 	{
 		/* Try to get bigger the heap*/
 		if (!allocate_memory())
@@ -63,12 +60,12 @@ void *get_user_ptr(void *heap, size_t mem_asked)
 		remaining_mem += M_CHUNK;
 	}
 	/* Get the ptr to retrieve the user and set the headers of the user chunks*/
-	((size_t *) heap)[0] -= 1;
-	((size_t *) heap)[1] = mem_asked + ((cur_chunk_h & 1) ? 1 : 0);
-	u_mem = (void *) (((char *) heap) + HEADER_C);
+	PREV_SIZE(heap) -= FLAG_LAST_HEADER;
+	CURR_SIZE(heap) = mem_asked + IS_PREV_FREE(cur_chunk_h);
+	u_mem = VOID_P((CHAR_P(heap) + HEADER_C));
 	/* Set the end header of the chain allocated*/
-	((size_t *) (((char *) heap) + mem_asked))[0] = 1;
-	((size_t *) (((char *) heap) + mem_asked))[1] = remaining_mem - mem_asked;
+	PREV_SIZE((CHAR_P(heap) + mem_asked)) = FLAG_LAST_HEADER;
+	CURR_SIZE((CHAR_P(heap) + mem_asked)) = remaining_mem - mem_asked;
 	return (u_mem);
 }
 
@@ -84,33 +81,34 @@ void *lookfor_free_memory(void *heap, size_t mem_asked)
 	void *pre_heap = NULL, *pre_pre_heap = NULL;
 
 	/* Look for unallocate memory*/
-	pre_chunk_h = ((size_t *) heap)[0], cur_chunk_h = ((size_t *) heap)[1];
-	while (!(pre_chunk_h & 1))
+	pre_chunk_h = GET_PREV_SIZE(heap), cur_chunk_h = GET_CURR_SIZE(heap);
+	while (!IS_LAST_HEADER(pre_chunk_h))
 	{
 		/*If exist contiguos free chunks, merge them*/
-		if (pre_heap && ((size_t *) pre_heap)[1] & 1 && cur_chunk_h & 1)
+		if (pre_heap && IS_PREV_FREE(GET_CURR_SIZE(pre_heap)) &&
+				IS_PREV_FREE(cur_chunk_h))
 		{
-			pre_pre_heap = ((char *) pre_heap) - ((size_t *) pre_heap)[0];
-			((size_t *) pre_pre_heap)[1] += pre_chunk_h;
-			((size_t *) heap)[0] += ((size_t *) pre_heap)[0];
-			heap = pre_pre_heap, cur_chunk_h = ((size_t *) heap)[1];
+			pre_pre_heap = CHAR_P(pre_heap) - GET_PREV_SIZE(pre_heap);
+			CURR_SIZE(pre_pre_heap) += pre_chunk_h;
+			PREV_SIZE(heap) += GET_PREV_SIZE(pre_heap);
+			heap = pre_pre_heap, cur_chunk_h = GET_CURR_SIZE(heap);
 		}
 		/* If find a freed chunk with enough memory, no get memory in the endchain*/
-		else if (cur_chunk_h & 1 && mem_asked <= pre_chunk_h)
+		else if (IS_PREV_FREE(cur_chunk_h) && mem_asked <= pre_chunk_h)
 		{
-			heap = ((char *) heap) - pre_chunk_h + ((pre_chunk_h & 1) ? 1 : 0);
+			heap = CHAR_P(heap) - pre_chunk_h + IS_LAST_HEADER(pre_chunk_h);
 			break;
 		}
 		/* If the prev chunk is free, so fix the chunk size to get the next chunk*/
 		pre_heap = heap;
-		heap = ((char *) heap) + cur_chunk_h - ((cur_chunk_h & 1) ? 1 : 0);
-		pre_chunk_h = ((size_t *) heap)[0], cur_chunk_h = ((size_t *) heap)[1];
+		heap = CHAR_P(heap) + cur_chunk_h - IS_PREV_FREE(cur_chunk_h);
+		pre_chunk_h = GET_PREV_SIZE(heap), cur_chunk_h = GET_CURR_SIZE(heap);
 	}
 	/*If exist a freed chunk before the end allocate, update the end allocate*/
-	if ((pre_chunk_h & 1) && (cur_chunk_h & 1))
+	if (IS_LAST_HEADER(pre_chunk_h) && IS_PREV_FREE(cur_chunk_h))
 	{
-		((size_t *) pre_heap)[0] += 1;
-		((size_t *) pre_heap)[1] += ((size_t *) heap)[1] - 1;
+		PREV_SIZE(pre_heap) += FLAG_LAST_HEADER;
+		CURR_SIZE(pre_heap) += GET_CURR_SIZE(heap) - FLAG_FREE;
 		heap = pre_heap;
 	}
 
@@ -124,6 +122,7 @@ void *lookfor_free_memory(void *heap, size_t mem_asked)
  */
 void *_malloc(size_t size)
 {
+	static void *begin_h;
 	void *u_mem = NULL, *heap = NULL;
 	size_t mem_asked = 0;
 
@@ -138,8 +137,7 @@ void *_malloc(size_t size)
 		if (!begin_h)
 			return (NULL);
 		/* Inicialize the final header with the remaining heap memory*/
-		((size_t *) begin_h)[0] = 1, ((size_t *) begin_h)[1] = M_CHUNK - HEADER_C;
-		printf("Entre\n");
+		PREV_SIZE(begin_h) = 1, CURR_SIZE(begin_h) = M_CHUNK - HEADER_C;
 	}
 	/* Align the requested memory*/
 	mem_asked = HEADER_C + size;
