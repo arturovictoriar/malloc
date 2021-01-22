@@ -107,11 +107,15 @@ void *lookfor_free_memory(void *heap, size_t mem_asked)
 	/*If exist a freed chunk before the end allocate, update the end allocate*/
 	if (IS_LAST_HEADER(pre_chunk_h) && IS_PREV_FREE(cur_chunk_h))
 	{
+		if (pre_heap && IS_PREV_FREE(GET_CURR_SIZE(pre_heap)))
+		{
+			pre_pre_heap = CHAR_P(pre_heap) - GET_PREV_SIZE(pre_heap);
+			CURR_SIZE(pre_pre_heap) += pre_chunk_h - IS_LAST_HEADER(pre_chunk_h);
+			PREV_SIZE(heap) += GET_PREV_SIZE(pre_heap), pre_heap = pre_pre_heap;
+		}
 		PREV_SIZE(pre_heap) += FLAG_LAST_HEADER;
-		CURR_SIZE(pre_heap) += GET_CURR_SIZE(heap) - FLAG_FREE;
-		heap = pre_heap;
+		CURR_SIZE(pre_heap) += GET_CURR_SIZE(heap) - FLAG_FREE, heap = pre_heap;
 	}
-
 	return (heap);
 }
 
